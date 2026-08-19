@@ -24,6 +24,7 @@ A leading blank column (data starting in column B) is handled.
 from __future__ import annotations
 from typing import Dict, List, Any, Tuple, Optional
 import pandas as pd
+import re
 
 try:
     from . import ira_engine as E
@@ -32,8 +33,10 @@ except ImportError:
 
 
 CATEGORY_WORDS = {
-    "secured": "Secured", "unsecured": "Unsecured",
-    "sme": "SME Banking", "business": "SME Banking",
+    "secured": "Secured", 
+    "unsecured": "Unsecured",
+    "sme": "SME Banking", 
+    "business": "SME Banking",
     "wealth": "Wealth Lending",
     "pvb": "Wealth Lending - PvB",
 }
@@ -58,25 +61,32 @@ def _trim_left(rows: List[List[Any]]) -> List[List[Any]]:
     return [[(r[c] if c < len(r) else None) for c in range(first, width)] for r in rows]
 
 
+def _is_title_row(row: List[Any]) -> bool:
+    """Check if a row looks like a title row (contains title keywords)."""
+    if not row:
+        return False
+    # Join all non-blank cells in the row
+    text = " ".join(str(c).lower() for c in row if not _blank(c) and isinstance(c, str))
+    # Check for title keywords
+    title_keywords = [
+        "credit risk appetite breaches",
+        "appetite", "breach", 
+        "dispensation", "active or expired",
+        "sovereign", "outlook", "crg",
+        "property price index", "ppi",
+        "interest rate"
+    ]
+    return any(kw in text for kw in title_keywords)
+
+
 def _title_of(row: List[Any]) -> Optional[str]:
-    """A title row has exactly one non-blank cell that is a non-date string.
-    Also handles cases where the title is in the first column and other cells
-    are empty/blank (more permissive)."""
-    nb = [(i, v) for i, v in enumerate(row) if not _blank(v)]
-    if len(nb) == 0:
+    """Extract the title from a title row."""
+    if not row or not _is_title_row(row):
         return None
-    # If the first non-blank is a string and looks like a title, return it
-    if isinstance(nb[0][1], str) and not E._is_date_like(nb[0][1]):
-        # Check if it contains any title keywords
-        text = nb[0][1].strip()
-        low = text.lower()
-        # If there are other non-blank cells, check if the first one is the title
-        if len(nb) == 1:
-            return text
-        # If multiple non-blank cells, the title is usually the first one
-        # if it contains keywords like "appetite", "breach", "dispensation", etc.
-        if any(kw in low for kw in ["appetite", "breach", "dispensation", "sovereign", "outlook", "ppi", "interest"]):
-            return text
+    # Find the first non-blank string cell
+    for v in row:
+        if isinstance(v, str) and v.strip():
+            return v.strip()
     return None
 
 
@@ -109,11 +119,35 @@ def _block(rows: List[List[Any]], start: int) -> Tuple[List[List[Any]], int]:
         r = rows[i]
         if all(_blank(c) for c in r):
             break
-        if out and _title_of(r):     # a new title starts the next block
+        if out and _is_title_row(r):     # a new title starts the next block
             break
         out.append(r)
         i += 1
     return out, i
+
+
+def _find_header_row(block: List[List[Any]]) -> int:
+    """Find the header row in a block. Looks for a row with 'Country' in first column
+    and date-like columns or other headers."""
+    for i, r in enumerate(block):
+        if not r:
+            continue
+        first = str(r[0]).strip().lower() if r[0] is not None else ""
+        if "country" in first:
+            # Check if there are date-like columns or other headers
+            if len(r) >= 2:
+                return i
+    return 0
+
+
+def _find_l12m_col(header: List[Any]) -> Optional[int]:
+    """Find the L12M column index in a header row."""
+    for i, v in enumerate(header):
+        if v is not None and isinstance(v, str):
+            low = v.lower().strip()
+            if "l12m" in low or "last 12" in low or "total" in low:
+                return i
+    return None
 
 
 # --------------------------------------------------------------------------- #
@@ -141,59 +175,48 @@ def _parse_breaches(block: List[List[Any]]) -> Dict[str, int]:
     if not block:
         return out
     
-    # Find the header row - look for a row that has "Country" and date-like columns
-    hdr_idx = 0
-    for i, r in enumerate(block):
-        if not r:
-            continue
-        # Check if this row has "Country" in the first cell and date-like columns
-        first = str(r[0]).strip().lower() if r[0] is not None else ""
-        if "country" in first:
-            # Check if there are date-like columns
-            date_cols = [j for j, v in enumerate(r) if E._is_date_like(v) and j > 0]
-            if date_cols:
-                hdr_idx = i
-                break
+    # Find the header row
+    hdr_idx = _find_header_row(block)
+    if hdr_idx >= len(block):
+        return out
     
-    header = block[hdr_idx] if hdr_idx < len(block) else block[0]
+    header = block[hdr_idx]
     
-    # Month columns are the date-like headers (excluding the first column)
-    mcols = [i for i, v in enumerate(header) if E._is_date_like(v) and i > 0]
-    # L12M column is usually the last column, or we can find it by label
-    l12m_col = None
+    # Find month columns (date-like columns after the first column)
+    mcols = []
     for i, v in enumerate(header):
-        if v is not None and isinstance(v, str) and "l12m" in v.lower():
-            l12m_col = i
-            break
-    # If L12M not found by label, use the last column after month columns
-    if l12m_col is None and mcols:
-        # Look for a numeric column after the date columns that has "total" or count
-        for i in range(max(mcols) + 1, len(header)):
-            if header[i] is not None and isinstance(header[i], str) and "total" in header[i].lower():
-                l12m_col = i
-                break
-        if l12m_col is None:
-            l12m_col = len(header) - 1  # last column
+        if i > 0 and E._is_date_like(v):
+            mcols.append(i)
     
-    # If we have month columns, we can count Y's in each row
+    # Find L12M column
+    l12m_col = _find_l12m_col(header)
+    
+    # If no month columns, maybe the data is already in L12M format
+    # Or maybe the header is just "Country" + months + "L12M"
+    
     for r in block[hdr_idx + 1:]:
         if not r or _blank(r[0]) or not isinstance(r[0], str):
             continue
         country = r[0].strip()
-        if country.lower() in ("country", "total", "grand total"):
+        if country.lower() in ("country", "total", "grand total", "total"):
             continue
         
-        # Count Y's in month columns
         cnt = 0
-        if mcols:
-            for i in mcols:
-                if i < len(r) and isinstance(r[i], str) and r[i].strip().upper() == "Y":
-                    cnt += 1
-        # If we have L12M column, use it instead (or as verification)
+        
+        # If we have L12M column, use it
         if l12m_col is not None and l12m_col < len(r):
             val = E._num(r[l12m_col])
-            if val is not None and val > 0:
+            if val is not None:
                 cnt = int(val) if float(val).is_integer() else val
+        # Otherwise count Y's in month columns
+        elif mcols:
+            for i in mcols:
+                if i < len(r):
+                    val = r[i]
+                    if isinstance(val, str) and val.strip().upper() == "Y":
+                        cnt += 1
+                    elif isinstance(val, (int, float)) and val > 0:
+                        cnt += int(val) if float(val).is_integer() else val
         
         out[country] = cnt
     
@@ -271,31 +294,39 @@ def parse_reference_tables(sheets: Dict[str, List[List[Any]]]) -> Dict[str, Any]
         rows = _trim_left(raw)
         i = 0
         while i < len(rows):
+            # Check if this row is a title
+            if not rows[i] or not _is_title_row(rows[i]):
+                i += 1
+                continue
+            
             title = _title_of(rows[i])
             if not title:
                 i += 1
                 continue
+                
             low = title.lower()
             block, nxt = _block(rows, i + 1)
 
-            if "active or expired" in low or "active/expired" in low or \
-               ("dispensation" in low):
-                cat = _category_from(low)
-                if cat:
-                    out["dispensations"][cat] = _parse_dispensation(block)
-            elif "credit risk appetite breaches" in low or \
-                    ("appetite" in low and "breach" in low) or \
-                    ("credit" in low and "risk" in low and "appetite" in low):
+            # Check for CRA breaches FIRST (most specific)
+            if "credit risk appetite breaches" in low or "credit risk appetite breach" in low:
                 cat = _category_from(low)
                 if cat:
                     out["cra_breaches"][cat] = _parse_breaches(block)
-            elif "sovereign" in low or ("outlook" in low and
-                                        ("crg" in low or "rating" in low)):
+            elif "appetite" in low and "breach" in low:
+                cat = _category_from(low)
+                if cat:
+                    out["cra_breaches"][cat] = _parse_breaches(block)
+            elif "active or expired" in low or "active/expired" in low or "dispensation" in low:
+                cat = _category_from(low)
+                if cat:
+                    out["dispensations"][cat] = _parse_dispensation(block)
+            elif "sovereign" in low or ("outlook" in low and ("crg" in low or "rating" in low)):
                 out["sovereign"] = _parse_sovereign(block)
             elif "property price index" in low or low.strip() == "ppi":
                 out["ppi"] = _parse_matrix(block)
             elif low.strip() == "interest rates" or "interest rate" in low:
                 out["interest_rates"] = _parse_matrix(block)
+            
             i = max(nxt, i + 1)
     # drop empties
     return {k: v for k, v in out.items()
