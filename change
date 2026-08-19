@@ -1,5 +1,14 @@
-def _parse_cra_breaches(sheets: Dict[str, List[List[Any]]]) -> Dict[str, Any]:
-    """Explicitly parse CRA breach tables from sheets."""
-    from . import ira_reftables as RT
+    # --- REAL reference tables (dispensations / breaches / sovereign /
+    #     PPI matrix / interest-rate matrix), located by title anywhere in the
+    #     provided sheets.  These OVERRIDE the dummy generators. -------------- #
     ref = RT.parse_reference_tables(sheets)
-    return ref.get("cra_breaches", {})
+    for key in ("dispensations", "cra_breaches", "sovereign"):
+        if ref.get(key):
+            tables[key] = ref[key]
+    
+    # --- Explicit CRA breach parsing (for tables that might be missed) ------ #
+    if not tables.get("cra_breaches"):
+        cra_direct = _parse_cra_breaches_direct(sheets)
+        if cra_direct:
+            tables["cra_breaches"] = cra_direct
+            print(f"[IRA] Directly parsed CRA breaches: {len(cra_direct)} categories")
