@@ -258,16 +258,47 @@ def run_analysis(mi, other, config, user, quarter, year) -> Dict[str, Any]:
             results[cat][country] = rows
 
     meta = {"run_id": rid, "user": user, "quarter": quarter, "year": year,
+            "mi_period": _mi_period(tables),
             "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
             "n_countries": len({c for cat in CATEGORIES for c in per_cat.get(cat, [])}),
             "na_count": len(na), "status": "processed"}
     try: xls = _excel(frames, inter, mapping)
     except Exception: xls = None
     RUN_CACHE[rid] = {"excel": xls, "meta": meta, "results": results, "calculated": calculated,
-                      "frames": frames, "inter": inter, "mapping": mapping}
+                      "frames": frames, "inter": inter, "mapping": mapping, "tables": tables,
+                      "per_cat": per_cat}
     return {"ok": True, "run_id": rid, "meta": meta, "na_details": na,
             "countries_by_product": cbp, "results": results, "calculated": calculated,
             "excel_ready": xls is not None}
+
+
+def _mi_period(tables):
+    try:
+        from IRA import ira_engine as E
+    except Exception:
+        import ira_engine as E
+    try:
+        return E.period_label(tables)
+    except Exception:
+        return ""
+
+
+def _lineage_rows(tables):
+    """Product/label -> formula -> parsed table -> raw sheet (for the flow view)."""
+    try:
+        from IRA import ira_pipeline as P, ira_config as C
+    except Exception:
+        import ira_pipeline as P, ira_config as C
+    out = []
+    for product in CATEGORIES:
+        for m in C.METRICS[product]():
+            ik = getattr(m["value"], "int_key", "")
+            parsed = [k for k in P.KEY_TO_PARSED.get(ik, []) if tables.get(k) is not None]
+            raws = [P.RAW_SHEET.get(k, k) for k in parsed]
+            out.append({"product": product, "label": m["label"], "formula": ik or "(blank)",
+                        "parsed": "; ".join(parsed) or "n/a", "raw": "; ".join(raws) or "n/a",
+                        "applicable": bool(ik)})
+    return out
 
 def _rid(user, q, y, now):
     safe = "".join(ch for ch in str(user) if ch.isalnum()) or "user"
@@ -309,9 +340,25 @@ def _excel(frames, inter, mapping, overrides=None):
     out = io.BytesIO(); wb.save(out); return base64.b64encode(out.getvalue()).decode("ascii")
 
 def _period_label(meta):
+    p = str(meta.get("mi_period", "") or "").strip()
+    if p:
+        return p
     q = str(meta.get("quarter", "") or "").strip()
     y = str(meta.get("year", "") or "").strip()
     return f"{q} {y}".strip()
+
+
+def _intermediate_workbook(cached):
+    """All intermediate (formula) tables in one workbook, each already carrying
+    the Period column (stamped by the engine)."""
+    inter = cached.get("inter") or {}
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as xw:
+        if not inter:
+            pd.DataFrame({"(no intermediates)": []}).to_excel(xw, sheet_name="empty", index=False)
+        for title, df in inter.items():
+            df.to_excel(xw, sheet_name=str(title)[:31], index=False)
+    return base64.b64encode(buf.getvalue()).decode("ascii")
 
 
 def _period_workbook(cached):
@@ -489,6 +536,28 @@ try:
                 headers={"Content-Disposition": f'attachment; filename="{fname}"'})
         except Exception as ex:
             return _J({"ok": False, "error": str(ex)}, 500)
+
+    @app.route("/download_intermediate/<run_id>")
+    def download_intermediate_ep(run_id):
+        c = RUN_CACHE.get(run_id)
+        if not c or not c.get("inter"):
+            return _J({"ok": False, "error": "Run not found (re-run the analysis)."}, 404)
+        try:
+            data = base64.b64decode(_intermediate_workbook(c))
+            period = _period_label(c["meta"]).replace(" ", "_").replace("/", "-") or "period"
+            return app.response_class(
+                data, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": f'attachment; filename="IRA_Intermediate_{period}_{run_id}.xlsx"'})
+        except Exception as ex:
+            return _J({"ok": False, "error": str(ex)}, 500)
+
+    @app.route("/lineage/<run_id>")
+    def lineage_ep(run_id):
+        c = RUN_CACHE.get(run_id)
+        if not c or not c.get("tables"):
+            return _J({"ok": False, "error": "Run not found."}, 404)
+        return _J({"ok": True, "period": c["meta"].get("mi_period", ""),
+                   "rows": _lineage_rows(c["tables"])})
 
     @app.route("/history")
     def history_ep():

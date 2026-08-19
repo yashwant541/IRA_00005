@@ -1,143 +1,64 @@
-<!-- ================= IRA Credit Risk - HTML tab (multi-page, light) ================= -->
-<div id="ira">
-  <!-- SIDEBAR -->
-  <aside class="sidebar">
-    <div class="brand">
-      <div class="brand-mark">IRA</div>
-      <div class="brand-txt"><h1>IRA Credit Risk</h1><span>Assessment workbench</span></div>
-    </div>
-    <nav id="nav">
-      <button class="nav-item" data-page="login"><span class="ni-ic">&#128273;</span> Login</button>
-      <button class="nav-item" data-page="upload" disabled><span class="ni-ic">&#128228;</span> Upload data</button>
-      <button class="nav-item" data-page="validate" disabled><span class="ni-ic">&#9989;</span> Validation</button>
-      <button class="nav-item" data-page="output" disabled><span class="ni-ic">&#128202;</span> Assessment output</button>
-      <button class="nav-item" data-page="override" disabled><span class="ni-ic">&#9997;</span> Final override</button>
-      <button class="nav-item" data-page="history"><span class="ni-ic">&#128340;</span> Recent runs</button>
+<div id="iraApp" class="app-shell">
+  <aside class="sidebar" aria-label="IRA workflow navigation">
+    <div class="brand"><div class="brand-mark">IRA</div><div><strong>Credit Risk</strong><span>Assessment Workbench</span></div></div>
+    <nav id="sideNav" class="side-nav">
+      <button class="nav-item active" data-page="login"><span>01</span><div>Sign in<small>PSID access</small></div><b>•</b></button>
+      <button class="nav-item" data-page="upload" disabled><span>02</span><div>Datasets<small>Upload inputs</small></div><b>•</b></button>
+      <button class="nav-item" data-page="validation" disabled><span>03</span><div>Data checks<small>Tables and schema</small></div><b>•</b></button>
+      <button class="nav-item" data-page="run" disabled><span>04</span><div>Run assessment<small>Process datasets</small></div><b>•</b></button>
+      <button class="nav-item" data-page="output" disabled><span>05</span><div>Assessment output<small>Review and download</small></div><b>•</b></button>
+      <button class="nav-item" data-page="final" disabled><span>06</span><div>Final assessment<small>Product and country</small></div><b>•</b></button>
     </nav>
-    <div class="side-foot"><div id="who" class="who"></div></div>
+    <div class="sidebar-foot"><span class="pulse"></span><div><strong id="sessionPsid">Not signed in</strong><small id="sessionState">Session inactive</small></div></div>
   </aside>
 
-  <!-- MAIN -->
   <main class="main">
-    <!-- LOGIN -->
-    <section class="page" id="page-login">
-      <div class="hero">
-        <div class="hero-mark">IRA</div>
-        <h2>Welcome</h2>
-        <p class="muted">Sign in with your PSID to begin an inherent risk assessment.</p>
-        <div class="login-box">
-          <label>PSID<input id="psid" class="input" placeholder="e.g. 1234567" autocomplete="off"></label>
-          <button id="btn-login" class="btn btn-primary btn-lg">Continue</button>
-          <div id="login-err" class="err-msg"></div>
-        </div>
+    <header class="topbar"><div><p class="eyebrow" id="pageKicker">ACCESS</p><h1 id="pageTitle">Welcome to IRA Credit Risk</h1><p id="pageSubtitle">Sign in with your PSID to start a controlled assessment run.</p></div><div class="top-actions"><span id="runChip" class="chip" hidden></span><button id="btnReset" class="icon-btn" title="Start a new run" hidden>↻</button></div></header>
+
+    <section class="page active" id="page-login">
+      <div class="hero-grid">
+        <article class="card login-card"><div class="icon-box">ID</div><p class="eyebrow">SECURE ACCESS</p><h2>Start your assessment</h2><p class="muted">Enter your PSID. It will be recorded against the run and final assessment.</p><form id="loginForm"><label>PSID<input id="psid" class="input" autocomplete="username" maxlength="40" placeholder="e.g. 1234567 or ABC123" required></label><button class="btn primary wide" type="submit">Continue to datasets <span>→</span></button></form><p class="privacy">🔒 Your PSID is used only for run identification and audit history.</p></article>
+        <article class="card journey"><p class="eyebrow">GUIDED WORKFLOW</p><h2>One clear path from input to approval</h2><div class="journey-list"><div><span>1</span><p><b>Upload</b><small>Add the MI workbook, other tables and country configuration.</small></p></div><div><span>2</span><p><b>Validate</b><small>Confirm required tables, columns and cross-table schemas.</small></p></div><div><span>3</span><p><b>Assess</b><small>Run the IRA engine and review calculated outcomes.</small></p></div><div><span>4</span><p><b>Finalize</b><small>Record the final rating for each Product and Country.</small></p></div></div></article>
       </div>
     </section>
 
-    <!-- UPLOAD -->
-    <section class="page" id="page-upload" hidden>
-      <div class="page-head"><h2>Upload datasets</h2><p class="muted">Provide the run details and the three inputs. Files are used for this session only.</p></div>
-      <div class="card">
-        <div class="form-row">
-          <label>Quarter<select id="f-quarter" class="input"><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option></select></label>
-          <label>Year<input id="f-year" class="input" type="number" placeholder="2026"></label>
-        </div>
+    <section class="page" id="page-upload">
+      <div class="section-head"><div><p class="eyebrow">INPUT DATA</p><h2>Upload assessment datasets</h2><p class="muted">All three inputs are required. Files are held temporarily for the active run.</p></div><span class="progress-pill"><b id="uploadCount">0</b>/3 ready</span></div>
+      <div class="upload-grid">
+        <label class="upload-card" data-key="mi"><input type="file" accept=".xlsx,.xls,.xlsm,.xlsb" hidden><span class="file-icon blue">▦</span><div><h3>MI workbook <em>Required</em></h3><p>Main assessment data and product tables.</p><small>.xlsx, .xls, .xlsm, .xlsb</small></div><strong class="file-state">Choose file</strong></label>
+        <label class="upload-card" data-key="other"><input type="file" accept=".xlsx,.xls,.xlsm,.xlsb" hidden><span class="file-icon teal">▤</span><div><h3>Other tables <em>Required</em></h3><p>Sovereign, dispensations, breaches, PPI and interest.</p><small>.xlsx, .xls, .xlsm, .xlsb</small></div><strong class="file-state">Choose file</strong></label>
+        <label class="upload-card" data-key="config"><input type="file" accept=".csv,.xlsx,.xls" hidden><span class="file-icon violet">◎</span><div><h3>Country config <em>Required</em></h3><p>Category, Country and Include controls.</p><small>.csv, .xlsx, .xls</small></div><strong class="file-state">Choose file</strong></label>
       </div>
-      <div class="card">
-        <div class="drop-grid">
-          <label class="drop" data-key="mi"><input type="file" accept=".xlsx,.xls" hidden>
-            <div class="drop-ico">&#128202;</div><div class="drop-title">MI file <em class="req">required</em></div>
-            <div class="drop-sub">ENR, DPD, GCO, ME, RWA&hellip;</div><div class="drop-status">Drop or click</div></label>
-          <label class="drop" data-key="other"><input type="file" accept=".xlsx,.xls" hidden>
-            <div class="drop-ico">&#128209;</div><div class="drop-title">Other tables <em class="req">required</em></div>
-            <div class="drop-sub">Sovereign, dispensations, breaches, PPI, interest</div><div class="drop-status">Drop or click</div></label>
-          <label class="drop" data-key="config"><input type="file" accept=".csv" hidden>
-            <div class="drop-ico">&#127758;</div><div class="drop-title">Countries config <em class="req">required</em></div>
-            <div class="drop-sub">Category, Country, Include</div><div class="drop-status">Drop or click</div></label>
-        </div>
-        <div class="actions-right"><button id="btn-validate" class="btn btn-primary" disabled>Run validation &rarr;</button></div>
-      </div>
+      <div class="card run-details"><div><h3>Run details</h3><p class="muted">Used in output naming and audit history.</p></div><label>Quarter<select id="quarter" class="input"><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option></select></label><label>Year<input id="year" type="number" class="input" min="2000" max="2100"></label></div>
+      <div class="footer-actions"><span></span><button id="btnValidate" class="btn primary" disabled>Validate datasets <span>→</span></button></div>
     </section>
 
-    <!-- VALIDATION -->
-    <section class="page" id="page-validate" hidden>
-      <div class="page-head"><h2>Validation</h2><p class="muted">Confirm every required table is present and each has the expected schema.</p></div>
-      <div id="val-summary" class="summary-strip"></div>
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-head"><h3>Required tables</h3><span id="req-badge" class="badge"></span></div>
-          <div id="required" class="table-wrap"></div>
-        </div>
-        <div class="card">
-          <div class="card-head"><h3>Schema / columns</h3><span id="sch-badge" class="badge"></span></div>
-          <p class="muted">Column order may differ; the columns themselves must exist (date columns are ignored).</p>
-          <div id="schema" class="table-wrap"></div>
-        </div>
-      </div>
-      <div class="actions-split">
-        <button class="btn btn-ghost" data-page="upload">&larr; Back to upload</button>
-        <button id="btn-run" class="btn btn-primary">Everything looks right &mdash; Run assessment &rarr;</button>
-      </div>
+    <section class="page" id="page-validation">
+      <div class="section-head"><div><p class="eyebrow">QUALITY GATE</p><h2>Dataset validation</h2><p class="muted">The assessment can run only after every blocking check passes.</p></div><span id="validationSummary" class="status-badge neutral">Not checked</span></div>
+      <div id="validationStats" class="stats"></div>
+      <article class="card"><div class="card-head"><div><h3>Required table availability</h3><p class="muted">Every input table expected by the assessment engine.</p></div><button class="btn ghost small" id="btnRevalidate">Run checks again</button></div><div id="tableChecks" class="table-wrap"></div></article>
+      <article class="card"><div class="card-head"><div><h3>Schema consistency</h3><p class="muted">Column order is ignored. Configured date columns are excluded from comparison.</p></div><div class="legend"><i class="ok"></i> Match <i class="bad"></i> Issue</div></div><div id="schemaChecks" class="table-wrap"></div></article>
+      <article id="issuePanel" class="card issue-card"><div class="card-head"><div><h3>Items to resolve</h3><p class="muted">Exact table and missing column details are shown below.</p></div><span id="issueCount" class="count-badge">0</span></div><div id="issues"></div></article>
+      <div class="footer-actions"><button class="btn ghost" data-go="upload">← Back to uploads</button><button id="btnGoRun" class="btn primary" disabled>Continue to run <span>→</span></button></div>
     </section>
 
-    <!-- OUTPUT -->
-    <section class="page" id="page-output" hidden>
-      <div class="page-head">
-        <div><h2>Assessment output</h2><span id="run-badge" class="badge"></span></div>
-        <div class="btn-row">
-          <button id="btn-download-period" class="btn btn-ghost">&#128197; Download with Period</button>
-          <button id="btn-download" class="btn btn-primary">&#8681; Download output</button>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-head"><h3>Results</h3>
-          <div class="selectors"><select id="sel-product" class="input"></select><select id="sel-country" class="input"></select></div>
-        </div>
-        <div id="result-table" class="table-wrap"></div>
-      </div>
-      <div class="card" id="na-card">
-        <div class="card-head"><h3>Values not available</h3><input id="na-search" class="input" placeholder="Filter&hellip;"></div>
-        <div id="na-details" class="table-wrap small"></div>
-      </div>
-      <div class="actions-split"><span></span><button class="btn btn-primary" data-page="override">Add final overrides &rarr;</button></div>
+    <section class="page" id="page-run">
+      <div class="center-stage card"><span class="run-orb">▶</span><p class="eyebrow">READY TO PROCESS</p><h2>All validation checks passed</h2><p class="muted">The uploaded datasets are ready for the Inherent Credit Risk Assessment engine.</p><div id="runRecap" class="recap"></div><button id="btnRun" class="btn primary large">Run assessment</button><div id="runProgress" class="run-progress" hidden><div class="spinner"></div><div><b>Assessment is running</b><small id="runProgressText">Preparing datasets…</small></div></div></div>
     </section>
 
-    <!-- OVERRIDE -->
-    <section class="page" id="page-override" hidden>
-      <div class="page-head"><h2>Final Inherent Credit Risk Assessment (with Override)</h2><p class="muted">Set the final rating and rationale for each Product &amp; Country, then approve.</p></div>
-      <div class="card">
-        <div class="card-head"><h3>Select combination</h3>
-          <div class="selectors"><select id="ov-product" class="input"></select><select id="ov-country" class="input"></select></div>
-        </div>
-        <div class="ov-context" id="ov-context"></div>
-        <div class="form-row">
-          <label>Override rating<select id="ov-rating" class="input">
-            <option value="">— keep calculated —</option><option>Very Low</option><option>Low</option><option>Medium</option><option>High</option><option>Very High</option>
-          </select></label>
-          <label class="grow">Justification / commentary<textarea id="ov-text" class="input" rows="3" placeholder="Rationale for the final assessment&hellip;"></textarea></label>
-        </div>
-        <div id="ov-saved" class="ov-hint"></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><h3>Captured overrides</h3></div>
-        <div id="ov-list" class="table-wrap small"></div>
-      </div>
-      <div class="card">
-        <div class="btn-row">
-          <button id="btn-save" class="btn btn-ghost">&#128190; Send output to Dataiku folder</button>
-          <button id="btn-tableau" class="btn btn-ghost">&#128228; Trigger Tableau upload</button>
-          <button id="btn-approve" class="btn btn-primary">&#10003; Approve &amp; finalize</button>
-        </div>
-        <div id="final-log" class="log"></div>
-      </div>
+    <section class="page" id="page-output">
+      <div class="section-head"><div><p class="eyebrow">CALCULATED RESULT</p><h2>Assessment output</h2><p class="muted">Review the engine output before recording the final assessment.</p></div><div class="filters"><select id="productFilter" class="input"></select><select id="countryFilter" class="input"></select></div></div>
+      <div id="outputStats" class="stats"></div><article class="card"><div id="resultTable" class="table-wrap tall"></div></article>
+      <article class="card" id="flowCard" hidden><div class="card-head"><div><h3>Table flow (layer to layer)</h3><p class="muted">Raw sheet → Parsed table → Formula → Product output, for every label.</p></div><div class="legend"><i style="background:#eaf1ff"></i> Raw <i style="background:#e5f8f6"></i> Parsed <i style="background:#fff7e6"></i> Formula <i style="background:#f1ebff"></i> Product</div></div><div class="filters" style="margin-bottom:12px"><select id="flowProduct" class="input"></select></div><div id="flowTable" class="table-wrap"></div></article>
+      <div class="footer-actions"><div class="filters"><button id="btnDownload" class="btn ghost">⇩ Download output (with Period)</button><button id="btnIntermediate" class="btn ghost">⇩ Intermediate (with Period)</button><button id="btnFlow" class="btn ghost">◇ View table flow</button></div><button class="btn primary" data-go="final">Add final assessments <span>→</span></button></div>
     </section>
 
-    <!-- HISTORY -->
-    <section class="page" id="page-history" hidden>
-      <div class="page-head"><h2>Recent runs</h2><button id="btn-refresh" class="btn btn-ghost sm">Refresh</button></div>
-      <div class="card"><div id="history" class="table-wrap"><p class="muted pad">No runs yet.</p></div></div>
+    <section class="page" id="page-final">
+      <div class="section-head"><div><p class="eyebrow">FINAL DECISION</p><h2>Final Inherent Credit Risk Assessment</h2><p class="muted">Complete one decision for every Product and Country combination.</p></div><span id="completionBadge" class="progress-pill">0% complete</span></div>
+      <article class="card"><div class="assessment-toolbar"><div class="filters"><select id="finalProduct" class="input"></select><select id="finalCountry" class="input"></select></div><div id="scopeCounter" class="muted"></div></div><div class="decision-grid"><div class="calculated-box"><small>Calculated rating</small><strong id="calculatedRating">—</strong><span id="calculatedScore">—</span></div><div class="arrow">→</div><div class="final-form"><label>Final rating<select id="finalRating" class="input"><option value="">Select rating</option><option>Very Low</option><option>Low</option><option>Medium</option><option>High</option><option>Very High</option></select></label><label>Assessment rationale<textarea id="finalComment" class="input" rows="4" placeholder="Explain the final assessment or why the calculated rating is retained."></textarea></label><button id="btnSaveDecision" class="btn primary">Save this Product and Country</button><p id="decisionSaved" class="saved-note"></p></div></div></article>
+      <article class="card"><div class="card-head"><div><h3>Completion tracker</h3><p class="muted">Saved decisions across the full assessment scope.</p></div></div><div id="decisionTracker" class="table-wrap"></div></article>
+      <div class="footer-actions"><button class="btn ghost" data-go="output">← Back to output</button><button id="btnFinalize" class="btn primary" disabled>Approve and finalize</button></div><div id="finalLog" class="log"></div>
     </section>
   </main>
-
   <div id="toast" class="toast" hidden></div>
-  <div id="loading" class="loading-overlay" hidden><div class="spinner"></div><div id="loading-txt">Working&hellip;</div></div>
 </div>
