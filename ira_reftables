@@ -67,13 +67,19 @@ def _is_title_row(row: List[Any]) -> bool:
         return False
     # Join all non-blank cells in the row
     text = " ".join(str(c).lower() for c in row if not _blank(c) and isinstance(c, str))
-    # Check for title keywords
+    # Check for title keywords - look for CRA breach patterns specifically
     title_keywords = [
         "credit risk appetite breaches",
-        "appetite", "breach", 
-        "dispensation", "active or expired",
-        "sovereign", "outlook", "crg",
-        "property price index", "ppi",
+        "credit risk appetite breach",
+        "appetite breaches",
+        "appetite breach",
+        "dispensation", 
+        "active or expired",
+        "sovereign", 
+        "outlook", 
+        "crg",
+        "property price index", 
+        "ppi",
         "interest rate"
     ]
     return any(kw in text for kw in title_keywords)
@@ -98,14 +104,14 @@ def _category_from(title: str) -> Optional[str]:
     import re
     words = set(re.sub(r"[^a-z0-9 ]", " ", str(title).lower()).split())
 
+    if words & {"pvb"}:
+        return "Wealth Lending - PvB"
     if words & {"unsecured", "unsec"}:
         return "Unsecured"
     if words & {"secured", "sec"}:
         return "Secured"
     if words & {"sme", "smb", "business"}:
         return "SME Banking"
-    if words & {"pvb"}:
-        return "Wealth Lending - PvB"
     if words & {"wl", "wm", "wealth"}:
         return "Wealth Lending"
     return None
@@ -137,6 +143,13 @@ def _find_header_row(block: List[List[Any]]) -> int:
             # Check if there are date-like columns or other headers
             if len(r) >= 2:
                 return i
+    # If no row has "Country", try to find a row with date-like columns
+    for i, r in enumerate(block):
+        if not r:
+            continue
+        date_cols = [j for j, v in enumerate(r) if E._is_date_like(v)]
+        if date_cols:
+            return i
     return 0
 
 
@@ -150,27 +163,9 @@ def _find_l12m_col(header: List[Any]) -> Optional[int]:
     return None
 
 
-# --------------------------------------------------------------------------- #
-#  per-schema parsers
-# --------------------------------------------------------------------------- #
-def _parse_dispensation(block: List[List[Any]]) -> Dict[str, float]:
-    """Country | #  ->  {country: count}."""
-    out = {}
-    if not block:
-        return out
-    # header is first row (Country | #); data follows
-    for r in block[1:]:
-        if len(r) >= 2 and isinstance(r[0], str) and not _blank(r[0]):
-            if r[0].strip().lower() in ("country", "total"):
-                continue
-            val = E._num(r[1])
-            if val is not None:
-                out[r[0].strip()] = int(val) if float(val).is_integer() else val
-    return out
-
-
 def _parse_breaches(block: List[List[Any]]) -> Dict[str, int]:
-    """Country | <months Y/blank> | L12M  ->  {country: count of Y in last 12 months}."""
+    """Country | <months Y/blank> | L12M  ->  {country: count of Y in last 12 months}.
+    Handles the specific format where months are columns with Y/blank values."""
     out = {}
     if not block:
         return out
@@ -191,14 +186,26 @@ def _parse_breaches(block: List[List[Any]]) -> Dict[str, int]:
     # Find L12M column
     l12m_col = _find_l12m_col(header)
     
-    # If no month columns, maybe the data is already in L12M format
-    # Or maybe the header is just "Country" + months + "L12M"
+    # If no month columns, try to find them by looking at the data
+    if not mcols:
+        # Look at the first few data rows to see if there are Y values
+        for r in block[hdr_idx + 1:min(hdr_idx + 5, len(block))]:
+            if not r:
+                continue
+            for i, v in enumerate(r):
+                if i > 0 and isinstance(v, str) and v.strip().upper() == "Y":
+                    if i not in mcols:
+                        mcols.append(i)
+    
+    # If we still don't have month columns, just use all columns after first
+    if not mcols and header:
+        mcols = list(range(1, len(header)))
     
     for r in block[hdr_idx + 1:]:
         if not r or _blank(r[0]) or not isinstance(r[0], str):
             continue
         country = r[0].strip()
-        if country.lower() in ("country", "total", "grand total", "total"):
+        if country.lower() in ("country", "total", "grand total", "total", "all"):
             continue
         
         cnt = 0
@@ -207,7 +214,7 @@ def _parse_breaches(block: List[List[Any]]) -> Dict[str, int]:
         if l12m_col is not None and l12m_col < len(r):
             val = E._num(r[l12m_col])
             if val is not None:
-                cnt = int(val) if float(val).is_integer() else val
+                cnt = int(val) if float(val).is_integer() else int(val)
         # Otherwise count Y's in month columns
         elif mcols:
             for i in mcols:
@@ -216,10 +223,34 @@ def _parse_breaches(block: List[List[Any]]) -> Dict[str, int]:
                     if isinstance(val, str) and val.strip().upper() == "Y":
                         cnt += 1
                     elif isinstance(val, (int, float)) and val > 0:
-                        cnt += int(val) if float(val).is_integer() else val
+                        cnt += int(val) if float(val).is_integer() else int(val)
+                    elif isinstance(val, str):
+                        # Try to parse as number
+                        try:
+                            num = float(val.strip())
+                            if num > 0:
+                                cnt += int(num) if float(num).is_integer() else int(num)
+                        except (ValueError, TypeError):
+                            pass
         
         out[country] = cnt
     
+    return out
+
+
+def _parse_dispensation(block: List[List[Any]]) -> Dict[str, float]:
+    """Country | #  ->  {country: count}."""
+    out = {}
+    if not block:
+        return out
+    # header is first row (Country | #); data follows
+    for r in block[1:]:
+        if len(r) >= 2 and isinstance(r[0], str) and not _blank(r[0]):
+            if r[0].strip().lower() in ("country", "total"):
+                continue
+            val = E._num(r[1])
+            if val is not None:
+                out[r[0].strip()] = int(val) if float(val).is_integer() else val
     return out
 
 
@@ -284,18 +315,27 @@ def _parse_matrix(block: List[List[Any]]) -> "E.MonthTable":
     return E.MonthTable(months, {}, data, {})
 
 
-# --------------------------------------------------------------------------- #
-#  top-level: scan all sheets, extract every reference table by title
-# --------------------------------------------------------------------------- #
 def parse_reference_tables(sheets: Dict[str, List[List[Any]]]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {"dispensations": {}, "cra_breaches": {},
-                           "sovereign": {}, "ppi": None, "interest_rates": None}
+    """Scan all sheets and extract all reference tables by title."""
+    out: Dict[str, Any] = {
+        "dispensations": {}, 
+        "cra_breaches": {},
+        "sovereign": {}, 
+        "ppi": None, 
+        "interest_rates": None
+    }
+    
     for name, raw in sheets.items():
         rows = _trim_left(raw)
         i = 0
         while i < len(rows):
+            # Skip empty rows
+            if not rows[i] or all(_blank(c) for c in rows[i]):
+                i += 1
+                continue
+            
             # Check if this row is a title
-            if not rows[i] or not _is_title_row(rows[i]):
+            if not _is_title_row(rows[i]):
                 i += 1
                 continue
             
@@ -306,28 +346,36 @@ def parse_reference_tables(sheets: Dict[str, List[List[Any]]]) -> Dict[str, Any]
                 
             low = title.lower()
             block, nxt = _block(rows, i + 1)
-
+            
             # Check for CRA breaches FIRST (most specific)
-            if "credit risk appetite breaches" in low or "credit risk appetite breach" in low:
+            is_cra = (
+                "credit risk appetite breaches" in low or 
+                "credit risk appetite breach" in low or
+                ("appetite" in low and "breach" in low)
+            )
+            
+            if is_cra:
                 cat = _category_from(low)
                 if cat:
-                    out["cra_breaches"][cat] = _parse_breaches(block)
-            elif "appetite" in low and "breach" in low:
-                cat = _category_from(low)
-                if cat:
-                    out["cra_breaches"][cat] = _parse_breaches(block)
+                    parsed = _parse_breaches(block)
+                    if parsed:
+                        out["cra_breaches"][cat] = parsed
             elif "active or expired" in low or "active/expired" in low or "dispensation" in low:
                 cat = _category_from(low)
                 if cat:
-                    out["dispensations"][cat] = _parse_dispensation(block)
+                    parsed = _parse_dispensation(block)
+                    if parsed:
+                        out["dispensations"][cat] = parsed
             elif "sovereign" in low or ("outlook" in low and ("crg" in low or "rating" in low)):
-                out["sovereign"] = _parse_sovereign(block)
+                parsed = _parse_sovereign(block)
+                if parsed:
+                    out["sovereign"] = parsed
             elif "property price index" in low or low.strip() == "ppi":
                 out["ppi"] = _parse_matrix(block)
             elif low.strip() == "interest rates" or "interest rate" in low:
                 out["interest_rates"] = _parse_matrix(block)
             
             i = max(nxt, i + 1)
+    
     # drop empties
-    return {k: v for k, v in out.items()
-            if v not in (None, {}, [])}
+    return {k: v for k, v in out.items() if v not in (None, {}, [])}
