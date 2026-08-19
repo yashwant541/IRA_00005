@@ -1,0 +1,5 @@
+def _parse_cra_breaches(sheets: Dict[str, List[List[Any]]]) -> Dict[str, Any]:
+    """Explicitly parse CRA breach tables from sheets."""
+    from . import ira_reftables as RT
+    ref = RT.parse_reference_tables(sheets)
+    return ref.get("cra_breaches", {})
